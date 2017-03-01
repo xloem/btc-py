@@ -1,6 +1,9 @@
 import csv
 import requests
+import sqlite3
 import zlib
+
+import config
 
 
 def markets():
@@ -60,6 +63,15 @@ def history(symbol):
 	return _closable(csv.reader(it), r)
 history.uri = 'https://api.bitcoincharts.com/v1/csv'
 
+class Database:
+	def __init__(self, connection = None):
+		if connection is None:
+			connection = sqlite3.connect(config.datafolder + '/bitcoincharts.sql')
+		self._conn = connection
+		self._c = self._conn.cursor()
+
+		# self._c.execute('''CREATE TABLE trades (id bigint autoincrement, time bigint, price bigint, volume bigint''')
+		# self._conn.commit()
 	
 	
 
