@@ -11,23 +11,28 @@ def weighted():
 	return requests.get(weighted.uri).json()
 weighted.uri = 'https://api.bitcoincharts.com/v1/weighted_prices.json'
 
-class _iter_text:
-	def __init__(self, iter, enc):
-		self._iter = iter
-		self._enc = enc
-	def __iter__(self):
-		return self
-	def __next__(self):
-		return self._iter.__next__().decode(self._enc)
+def _iter_text(iter, enc):
+	for chunk in iter:
+		yield chunk.decode(enc)
 
-class _iter_gunzip:
-	def __init__(self, iter):
-		self._iter = iter
-		self._obj = zlib.decompressobj(16 | zlib.MAX_WBITS)
-	def __iter__(self):
-		return self
-	def __next__(self):
-		return self._obj.decompress(self._iter.__next__())
+def _iter_lines(iter):
+	pending = None
+	for chunk in iter:
+		if pending is not None:
+			chunk = pending + chunk
+		lines = chunk.splitlines()
+		if lines and lines[-1] and chunk and lines[-1][-1] == chunk[-1]:
+			pending = lines.pop()
+		else:
+			pending = None
+
+		for line in lines:
+			yield line
+
+def _iter_gunzip(iter):
+	obj = zlib.decompressobj(16 | zlib.MAX_WBITS)
+	for chunk in iter:
+		yield obj.decompress(chunk)
 		
 class _closable:
 	def __init__(self, iter, closee):
@@ -50,6 +55,8 @@ def history(symbol):
 	r = requests.get(history.uri + '/%s.csv.gz' % symbol, stream=True)
 	it = r.iter_content(1024)
 	it = _iter_gunzip(it)
+	it = _iter_text(it, 'utf-8')
+	it = _iter_lines(it)
 	return _closable(csv.reader(it), r)
 history.uri = 'https://api.bitcoincharts.com/v1/csv'
 
@@ -57,4 +64,9 @@ history.uri = 'https://api.bitcoincharts.com/v1/csv'
 	
 
 if __name__ == '__main__':
-	pass
+	print('Asking for all markets ...')
+	for market in markets():
+		symbol = market.get('symbol')
+		print('%s history ...' % symbol)
+		for line in history(symbol):
+			print(line)
