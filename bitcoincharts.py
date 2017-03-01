@@ -33,15 +33,20 @@ def _iter_gunzip(iter):
 	obj = zlib.decompressobj(16 | zlib.MAX_WBITS)
 	for chunk in iter:
 		yield obj.decompress(chunk)
+
 		
 class _closable:
 	def __init__(self, iter, closee):
 		self._iter = iter
 		self._closee = closee
 	def __iter__(self):
-		return self._iter
+		return self
+	def __next__(self):
+		return self._iter.__next__()
 	def close(self):
 		return self._closee.close()
+	def __del__(self):
+		return self.close()
 
 def trades(symbol, start):
 	r = requests.get(trades.uri + '?symbol=%s&start=%d' % (symbol, start), stream=True)
@@ -60,13 +65,5 @@ def history(symbol):
 	return _closable(csv.reader(it), r)
 history.uri = 'https://api.bitcoincharts.com/v1/csv'
 
-	
-	
-
 if __name__ == '__main__':
-	print('Asking for all markets ...')
-	for market in markets():
-		symbol = market.get('symbol')
-		print('%s history ...' % symbol)
-		for line in history(symbol):
-			print(line)
+	print(weighted())
