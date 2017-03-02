@@ -46,7 +46,6 @@ class _closable:
 	def close(self):
 		return self._closee.close()
 	def __del__(self):
-		print('garbage collected, closing!')
 		return self.close()
 
 def trades(symbol, start):
