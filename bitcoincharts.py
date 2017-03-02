@@ -40,10 +40,13 @@ class _closable:
 		self._iter = iter
 		self._closee = closee
 	def __iter__(self):
-		return self._iter
+		return self
+	def __next__(self):
+		return self._iter.__next__()
 	def close(self):
 		return self._closee.close()
 	def __del__(self):
+		print('garbage collected, closing!')
 		return self.close()
 
 def trades(symbol, start):
