@@ -163,7 +163,11 @@ class Database:
 			self._conn.commit()
 			print('%d more %s trades' % (count, symbol))
 		else:
-			print('no more %s trades' % symbol)
+			if lastTime != self._c.execute('select latestTradeKnown from exchanges where symbol = ?', (symbol,)).fetchone()[0]:
+				print('%s appears to be an incomplete historical archive' % symbol)
+				self._c.execute('delete from trades where symbol = ?', (symbol,))
+				self._conn.commit()
+				return self.updateSymbol(symbol)
 		
 	def verify(self, symbol):
 		self._c.execute('select time, price, volume from trades where symbol = ? order by time, id', (symbol,))
@@ -190,9 +194,6 @@ class Database:
 	
 
 if __name__ == '__main__':
-	import console
-	console.set_idle_timer_disabled(True)
-	console.show_activity()
 	d = Database()
-	console.hide_activity()
+	d.updateCurrency('USD')
 
