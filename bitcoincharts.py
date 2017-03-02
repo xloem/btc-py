@@ -1,6 +1,8 @@
 import csv
+import os
 import requests
 import sqlite3
+import threading
 import zlib
 
 import config
@@ -36,6 +38,7 @@ def _iter_gunzip(iter):
 	obj = zlib.decompressobj(16 | zlib.MAX_WBITS)
 	for chunk in iter:
 		yield obj.decompress(chunk)
+
 		
 class _closable:
 	def __init__(self, iter, closee):
@@ -64,21 +67,87 @@ def history(symbol):
 history.uri = 'https://api.bitcoincharts.com/v1/csv'
 
 class Database:
-	def __init__(self, connection = None):
+	def __init__(self, connection = None, updateInterval = 60 * 60 * 6):
 		if connection is None:
-			connection = sqlite3.connect(config.datafolder + '/bitcoincharts.sql')
+			connection = sqlite3.connect(os.path.join(config.datafolder, 'bitcoincharts.sql'))
 		self._conn = connection
 		self._c = self._conn.cursor()
 
-		# self._c.execute('''CREATE TABLE trades (id bigint autoincrement, time bigint, price bigint, volume bigint''')
-		# self._conn.commit()
+		self._c.execute('create table if not exists exchanges (symbol text primary key, currency text not null, updated integer)')
+		self._c.execute('create index if not exists exchangescurrency on exchanges(currency, updated, symbol)')
+		self._c.execute('create index if not exists exchangesupdated on exchanges(updated, currency, symbol)')
+		self._c.execute('create table if not exists trades (id integer primary key autoincrement, time integer not null, price text not null, volume text not null, symbol text not null references exchanges(symbol))')
+		self._c.execute('create index if not exists tradessymboltime on trades(symbol, time, price, volume, id)')
+		self._conn.commit()
+		
+		self.update()
+		
+	def update(self):
+		for market in markets():
+			self._c.execute('insert or ignore into exchanges(symbol, currency) values (?, ?)', (market.get('symbol'), market.get('currency')))
+		self._conn.commit()
+		for row in self._c.execute('select symbol from exchanges where updated not null').fetchall():
+			self.updateSymbol(row[0])
+			
+	def currencies(self):
+		return [row[0] for row in self._c.execute('select distinct currency from exchanges')]
+	
+	def symbols(self, currency = None):
+		if currency is None:
+			self._c.execute('select symbol from exchanges')
+		else:
+			self._c.execute('select symbol from exchanges where currency = ?', (currency,))
+		return [row[0] for row in self._c]
+	
+	def updateCurrency(self, currency):
+		for symbol in self.symbols(currency):
+			self.updateSymbol(symbol)
+	
+	def updateSymbol(self, symbol):
+		row = self._c.execute('select time from trades where symbol = ? order by time desc limit 1', (symbol,)).fetchone()
+		if row is None:
+			print ('Downloading entire %s history ...' % symbol)
+			count = 0
+			for trade in history(symbol):
+				trade.append(symbol)
+				lastTime = trade[0] = int(trade[0])
+				count = count + 1
+				self._c.execute('insert into trades(time, price, volume, symbol) values(?,?,?,?)', trade)
+				if count % (1 << 20) == 0:
+					print('%d ...' % count)
+					self._conn.commit()
+			self._conn.commit()
+			print('%d new %s trades' % (count, symbol))
+		else:
+			lastTime = row[0]
+		
+		oldtrades = True
+		count = 0
+		for trade in trades(symbol, lastTime):
+			trade.append(symbol)
+			trade[0] = int(trade[0])
+			if oldtrades:
+				if self._c.execute('select id from trades where time = ? and price = ? and volume = ? and symbol = ?', trade).fetchone() is None:
+					oldtrades = False
+			if not oldtrades:
+				count = count + 1
+				self._c.execute('insert into trades(time, price, volume, symbol) values(?,?,?,?)', trade)
+		if count > 0:
+			self._conn.commit()
+			print('%d more %s trades' % (count, symbol))
+		else:
+			print('no more %s trades' % symbol)
+		
+		self._c.execute('update exchanges set updated = current_timestamp where symbol = ?', (symbol,))
+		self._conn.commit()
 	
 	
 
 if __name__ == '__main__':
-	print('Asking for all markets ...')
-	for market in markets():
-		symbol = market.get('symbol')
-		print('%s history ...' % symbol)
-		for line in history(symbol):
-			print(line)
+	import console
+	console.set_idle_timer_disabled(True)
+	console.show_activity()
+	print('Storing all USD data')
+	d = Database()
+	d.updateCurrency('USD')
+
