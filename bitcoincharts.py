@@ -2,13 +2,15 @@ import csv
 import requests
 import zlib
 
+timeout = 10
+session = requests.session()
 
 def markets():
-	return requests.get(markets.uri).json()
+	return session.get(markets.uri, timeout=timeout).json()
 markets.uri = 'https://api.bitcoincharts.com/v1/markets.json'
 
 def weighted():
-	return requests.get(weighted.uri).json()
+	return session.get(weighted.uri, timeout=timeout).json()
 weighted.uri = 'https://api.bitcoincharts.com/v1/weighted_prices.json'
 
 def _iter_text(iter, enc):
@@ -49,7 +51,7 @@ class _closable:
 		return self.close()
 
 def trades(symbol, start):
-	r = requests.get(trades.uri + '?symbol=%s&start=%d' % (symbol, start), stream=True)
+	r = session.get(trades.uri + '?symbol=%s&start=%d' % (symbol, start), stream=True, timeout=timeout)
 	it = r.iter_lines()
 	it = _iter_text(it, r.encoding)
 	return _closable(csv.reader(it), r)
@@ -57,7 +59,7 @@ trades.uri = 'https://api.bitcoincharts.com/v1/trades.csv'
 	
 
 def history(symbol):
-	r = requests.get(history.uri + '/%s.csv.gz' % symbol, stream=True)
+	r = session.get(history.uri + '/%s.csv.gz' % symbol, stream=True, timeout=timeout)
 	it = r.iter_content(1024)
 	it = _iter_gunzip(it)
 	it = _iter_text(it, 'utf-8')

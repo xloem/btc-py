@@ -106,6 +106,7 @@ class Database:
 			lastTime = row[0]
 		
 		oldtrades = True
+		oldCount = 0
 		count = 0
 		for trade in bitcoincharts.trades(symbol, lastTime - 1):
 			trade.append(symbol)
@@ -113,7 +114,12 @@ class Database:
 			if oldtrades:
 				if self._c.execute('select id from trades where time = ? and price = ? and volume = ? and symbol = ?', trade).fetchone() is None:
 					oldtrades = False
+				else:
+					oldCount = oldCount + 1
 			if not oldtrades:
+				if count == 0 and oldCount == 0:
+					lastTime = 0
+					break
 				count = count + 1
 				self._c.execute('insert into trades(time, price, volume, symbol) values(?,?,?,?)', trade)
 		if count > 0:
@@ -122,7 +128,7 @@ class Database:
 			print('%d more %s trades' % (count, symbol))
 		else:
 			if lastTime != self._c.execute('select latestTradeKnown from exchanges where symbol = ?', (symbol,)).fetchone()[0]:
-				print('%s appears to be an incomplete historical archive' % symbol)
+				print('data too old for incremental update of %s' % symbol)
 				self._c.execute('delete from trades where symbol = ?', (symbol,))
 				self._conn.commit()
 				return self.updateSymbol(symbol)
@@ -130,7 +136,7 @@ class Database:
 	def verify(self, symbol):
 		self._c.execute('select time, price, volume from trades where symbol = ? order by time, id', (symbol,))
 		count = 0
-		for remote in history(symbol):
+		for remote in bitcoincharts.history(symbol):
 			stored = self._c.fetchone()
 			if stored is None:
 				print('%s correct for %d but not updated; next trade is %s' % (symbol, count, remote))
@@ -139,6 +145,8 @@ class Database:
 			remote[0] = int(remote[0])
 			if list(stored) != remote:
 				print('%s failed verification at trade %d; local=%s remote=%s' % (symbol, count, stored, remote))
+				self._c.execute('delete from trades where symbol = ?', (symbol,))
+				self._conn.commit()
 				return False
 			if count % (1 << 19) == 0:
 				print('%d correct ...' % count)
